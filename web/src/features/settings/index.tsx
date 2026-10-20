@@ -362,11 +362,17 @@ export function SettingsPage() {
                   codex={
                     (draft.codex as Record<string, unknown> | undefined) || {}
                   }
+                  compatibility={
+                    draft.compatibility as Record<string, unknown> | undefined
+                  }
                   onWebsocketChange={(next) =>
                     setDraft((current) => ({ ...current, websocket: next }))
                   }
                   onCodexChange={(next) =>
                     setDraft((current) => ({ ...current, codex: next }))
+                  }
+                  onCompatibilityChange={(next) =>
+                    setDraft((current) => ({ ...current, compatibility: next }))
                   }
                   saving={save.isPending}
                   pending={dirty}

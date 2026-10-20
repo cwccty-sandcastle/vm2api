@@ -17,6 +17,12 @@ const TRANSPORT_OPTIONS: [Transport, string][] = [
   ['prefer_websocket', '优先 WebSocket'],
   ['http', '仅 HTTP'],
 ]
+// 缺省 service_tier：off = 不注入；其余值按请求注入，控制面把 fast 归一为官方线值 priority。
+type DefaultTier = 'off' | 'fast'
+const DEFAULT_TIER_OPTIONS: [DefaultTier, string][] = [
+  ['off', '关闭'],
+  ['fast', 'Fast'],
+]
 
 function asBlock(value: unknown): Block {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -28,19 +34,29 @@ function codexClient(codex: Block, key: string) {
   const clients = asBlock(codex.clients)
   return clients[key] === 'allow'
 }
+function defaultTierFromCompat(compat: Block): DefaultTier {
+  const v = String(compat.default_service_tier ?? '')
+    .trim()
+    .toLowerCase()
+  return v && v !== 'off' && v !== 'false' && v !== 'none' ? 'fast' : 'off'
+}
 
 export function OpenaiPane({
   websocket,
   codex,
+  compatibility,
   onWebsocketChange,
   onCodexChange,
+  onCompatibilityChange,
   saving = false,
   pending = false,
 }: {
   websocket: Block
   codex: Block
+  compatibility?: Block
   onWebsocketChange: (next: Block) => void
   onCodexChange: (next: Block) => void
+  onCompatibilityChange?: (next: Block) => void
   saving?: boolean
   pending?: boolean
 }) {
@@ -51,6 +67,8 @@ export function OpenaiPane({
   const features = asBlock(codex.client_features)
   const analytics = asBlock(codex.analytics)
   const convert = asBlock(codex.convert)
+  const compat = compatibility ?? {}
+  const defaultTier = defaultTierFromCompat(compat)
   const transport: Transport =
     codex.upstream_transport === 'http' ? 'http' : 'prefer_websocket'
   const quota = asBlock(codex.quota) as Partial<OpenAIQuotaPolicy>
@@ -125,6 +143,27 @@ export function OpenaiPane({
               options={TRANSPORT_OPTIONS}
               disabled={saving || !wsLive}
               onChange={(upstream_transport) => update({ upstream_transport })}
+            />
+          </SettingRow>
+          <SettingRow
+            label='缺省 Fast 档'
+            desc={
+              defaultTier === 'fast'
+                ? '调用方未带 service_tier 的请求注入 fast（官方线值 priority）；显式 tier 原样透传。Fast 计费约为标准档 2 倍。'
+                : '关闭：不带 service_tier 的请求按上游默认档执行。开关由本地补丁读取，保存后立即生效。'
+            }
+          >
+            <ChipGroup
+              label='缺省 Fast 档'
+              value={defaultTier}
+              options={DEFAULT_TIER_OPTIONS}
+              disabled={saving || !onCompatibilityChange}
+              onChange={(tier) =>
+                onCompatibilityChange?.({
+                  ...compat,
+                  default_service_tier: tier === 'fast' ? 'fast' : 'off',
+                })
+              }
             />
           </SettingRow>
         </div>

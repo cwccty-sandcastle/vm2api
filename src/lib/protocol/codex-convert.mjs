@@ -3,6 +3,9 @@
  * Native openai.responses bodies pass through after identity strip.
  * Request/usage shapes follow codex-proxy-rs (system→developer, extract_usage).
  */
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { extractOpenaiUsage, openaiAnthropicUsageFromExtract, openaiChatUsageFromExtract } from './openai-usage.mjs'
 
 const IDENTITY_KEYS = [
@@ -14,6 +17,28 @@ const IDENTITY_KEYS = [
   'authorization',
   'client_metadata',
 ]
+
+// Local patch (sandcastle): routing.json compatibility.default_service_tier.
+// 'fast' injects Fast mode into tierless Codex requests; anything else (absent,
+// null, 'off', false) keeps upstream default behavior. Hot-read per request.
+export function defaultServiceTierFromRoutingFile(
+  file = path.join(
+    path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url)))),
+    'config',
+    'routing.json',
+  ),
+) {
+  try {
+    const tier = JSON.parse(fs.readFileSync(file, 'utf8'))?.compatibility
+      ?.default_service_tier
+    const v = String(tier ?? '')
+      .trim()
+      .toLowerCase()
+    return v && v !== 'off' && v !== 'false' && v !== 'none' ? v : ''
+  } catch {
+    return ''
+  }
+}
 
 export function stripCodexIdentity(body = {}) {
   if (!body || typeof body !== 'object') return {}
@@ -251,6 +276,16 @@ export function normalizeCodexReasoningEffort(raw) {
 
 function stripUnsupportedCodexFields(body = {}) {
   const next = { ...body }
+  // Local patch (sandcastle): when routing.json sets
+  // compatibility.default_service_tier, tierless requests get that tier
+  // (control plane folds 'fast' to wire 'priority' below). Explicit caller
+  // tiers (including auto/default) are always preserved verbatim.
+  if (
+    (typeof next.service_tier !== 'string' || !next.service_tier.trim()) &&
+    defaultServiceTierFromRoutingFile()
+  ) {
+    next.service_tier = defaultServiceTierFromRoutingFile()
+  }
   // Official Codex wire uses `priority`. Public API alias `fast` is rejected upstream.
   if (typeof next.service_tier === 'string' && next.service_tier.trim().toLowerCase() === 'fast') {
     next.service_tier = 'priority'
